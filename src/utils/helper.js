@@ -1,50 +1,49 @@
-// getAllChannel.js
 const { createClient } = require("../../telegram/telegramClient");
 const Channel = require("../models/channel");
-const SkipChannel = require("../models/skipChannel"); // Import the SkipChannel model
+const SkipChannel = require("../models/skipChannel");
 
 const getAllChannel = async () => {
+    console.time('getAllChannel'); // Start the timer
     try {
         // Create and connect the client
-        const client = await createClient();  // Ensure that it's awaited if needed
+        const client = await createClient();
 
-        // Fetch the dialogs (channels, groups, etc.)
-        const dialogs = await client.getDialogs();
-        const channels = dialogs.filter(dialog => dialog.isChannel || dialog.isGroup);
+        // Fetch the dialogs and skip channels concurrently
+        const [dialogs, skipChannels] = await Promise.all([
+            client.getDialogs(),
+            SkipChannel.find({}).lean() // Use lean() for faster read
+        ]);
 
-        // Loop through each channel and save/update the data
-        for (const channel of channels) {
-            // Check if the channel name exists in the SkipChannel collection
-            const skipChannel = await SkipChannel.findOne({ channelName: channel.title });
-            if (skipChannel) {
-                console.log(`Skipping channel: ${channel.title}`);
-                continue; // Skip this channel
-            }
+        const skipChannelSet = new Set(skipChannels.map(sc => sc.channelName));
 
-            const channelData = {
-                channelName: channel.title,
-                ChannelId: channel.id,
-                totalMessages: channel.dialog.topMessage,
-                accessHash: channel.accessHash,
-                usersJoined: channel.participantsCount,  // Assuming `participantsCount` provides users count
-                databaseCount: channel.dialog.unreadCount // Assuming `unreadCount` can act as offset or database count
-            };
+        const bulkOps = dialogs
+            .filter(dialog => (dialog.isChannel || dialog.isGroup) && !skipChannelSet.has(dialog.title))
+            .map(dialog => ({
+                updateOne: {
+                    filter: { ChannelId: dialog.id },
+                    update: {
+                        $set: {
+                            channelName: dialog.title,
+                            totalMessages: dialog.dialog.topMessage,
+                            accessHash: dialog.accessHash,
+                            usersJoined: dialog.participantsCount,
+                            databaseCount: dialog.dialog.unreadCount
+                        }
+                    },
+                    upsert: true,
+                    setDefaultsOnInsert: true
+                }
+            }));
 
-            try {
-                // Update or insert the channel data in the database
-                await Channel.findOneAndUpdate(
-                    { ChannelId: channel.id },
-                    channelData,
-                    { upsert: true, new: true, setDefaultsOnInsert: true }
-                );
-                console.log(`Channel data saved/updated for: ${channel.title}`);
-            } catch (err) {
-                console.error(`Error updating/inserting channel: ${err}`);
-            }
+        // Execute bulk operations
+        if (bulkOps.length > 0) {
+            await Channel.bulkWrite(bulkOps);
+            console.log(`Bulk operation completed for ${bulkOps.length} channels.`);
         }
     } catch (error) {
         console.error(`Error in getAllChannel: ${error}`);
     }
+    console.timeEnd('getAllChannel'); // End the timer
 };
 
 module.exports = { getAllChannel };
