@@ -1,11 +1,15 @@
 const { default: mongoose } = require("mongoose");
 
 const channel = new mongoose.Schema({
-    name: {
+    ChannelId: {
+        type: Number,
+        required: true
+    },
+    channelName: {
         type: String,
         required: true
     },
-    users: {
+    usersJoined: {
         type: Number,
         required: true
     },
@@ -15,8 +19,17 @@ const channel = new mongoose.Schema({
     },
     uploadedMessages: {
         type: Number,
+        default: 0
+    },
+    accessHash: {
+        type: Number,
         required: true
+    },
+    databaseCount: {
+        type: Number,
+        default: 0
     }
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('Channel', channel);

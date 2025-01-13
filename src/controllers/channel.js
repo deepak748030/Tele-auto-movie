@@ -1,9 +1,10 @@
 const channel = require('../models/channel');
+const { getAllChannel } = require('../utils/helper');
 
-const getChannelsData = async (req, res) => {
+const saveAllChannels = async (req, res) => {
     try {
-        const channels = await channel.getChannels();
-        res.json(channels);
+        getAllChannel()
+        res.json({ message: 'Channels saved successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -11,4 +12,4 @@ const getChannelsData = async (req, res) => {
 
 
 
-module.exports = { getChannelsData };
+module.exports = { saveAllChannels };

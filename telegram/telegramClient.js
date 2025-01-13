@@ -4,7 +4,7 @@ const { StringSession } = require("telegram/sessions");
 const { API_ID, API_HASH, STRING_SESSION } = require("../config");
 
 let client;
-console.log(API_ID, API_HASH, STRING_SESSION)
+
 const initTelegramClient = async () => {
     if (client) {
         console.log("Telegram client is already initialized.");
@@ -50,7 +50,9 @@ const getTelegramClient = () => {
     return client;
 };
 
+// Exporting the initTelegramClient function
 module.exports = {
     initTelegramClient,
     getTelegramClient,
+    createClient: initTelegramClient,  // Export the same function with the name createClient
 };
