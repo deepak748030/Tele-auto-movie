@@ -2,6 +2,8 @@ require('./db/db')();
 const express = require('express');
 const { PORT } = require('./config');
 const app = express();
+const { initTelegramClient } = require('./telegram/tele');
+initTelegramClient();
 
 app.get('/', (req, res) => {
     res.send('Hello World!');
