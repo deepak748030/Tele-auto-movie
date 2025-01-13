@@ -3,19 +3,15 @@ const Channel = require("../models/channel");
 const SkipChannel = require("../models/skipChannel");
 
 const getAllChannel = async () => {
-    console.time('getAllChannel'); // Start the timer
+    console.time('getAllChannel');
     try {
-        // Create and connect the client
         const client = await createClient();
-
-        // Fetch the dialogs and skip channels concurrently
         const [dialogs, skipChannels] = await Promise.all([
             client.getDialogs(),
-            SkipChannel.find({}).lean() // Use lean() for faster read
+            SkipChannel.find({}).lean()
         ]);
 
         const skipChannelSet = new Set(skipChannels.map(sc => sc.channelName));
-
         const bulkOps = dialogs
             .filter(dialog => (dialog.isChannel || dialog.isGroup) && !skipChannelSet.has(dialog.title))
             .map(dialog => ({
@@ -35,15 +31,14 @@ const getAllChannel = async () => {
                 }
             }));
 
-        // Execute bulk operations
-        if (bulkOps.length > 0) {
+        if (bulkOps.length) {
             await Channel.bulkWrite(bulkOps);
             console.log(`Bulk operation completed for ${bulkOps.length} channels.`);
         }
     } catch (error) {
         console.error(`Error in getAllChannel: ${error}`);
     }
-    console.timeEnd('getAllChannel'); // End the timer
+    console.timeEnd('getAllChannel');
 };
 
 module.exports = { getAllChannel };
