@@ -31,9 +31,9 @@ const saveChannelMessages = async () => {
 
         console.log(`Processing channel: ${channelId}, lastMessageId: ${lastProcessedMessageId}`);
 
-        while (totalFetchedMessages < 100) {
+        while (totalFetchedMessages < 20) {
             console.log(`Fetching messages for channel: ${channelId}, offsetId: ${offsetId}`);
-            const messages = await client.getMessages(channelId, { limit: 100, offset_id: offsetId });
+            const messages = await client.getMessages(channelId, { limit: 20, offset_id: offsetId });
 
             if (!messages || messages.length === 0) {
                 console.log("No more messages to fetch.");
@@ -46,8 +46,8 @@ const saveChannelMessages = async () => {
 
             console.log(`Fetched ${messages.length} messages. Total: ${allMessages.length}`);
 
-            if (totalFetchedMessages >= 100) {
-                console.log("Reached the limit of 100 messages.");
+            if (totalFetchedMessages >= 20) {
+                console.log("Reached the limit of 20 messages.");
                 break;
             }
 
