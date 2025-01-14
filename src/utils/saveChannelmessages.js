@@ -2,7 +2,6 @@ const Messages = require("../models/messages");
 const { getTelegramClient } = require("../../telegram/telegramClient");
 const Channel = require("../models/channel");
 const NodeCache = require("node-cache");
-
 const cache = new NodeCache();
 const saveChannelMessages = async () => {
     const startTime = Date.now();
@@ -32,9 +31,9 @@ const saveChannelMessages = async () => {
 
         console.log(`Processing channel: ${channelId}, lastMessageId: ${lastProcessedMessageId}`);
 
-        while (totalFetchedMessages < 1000) {
+        while (totalFetchedMessages < 100) {
             console.log(`Fetching messages for channel: ${channelId}, offsetId: ${offsetId}`);
-            const messages = await client.getMessages(channelId, { limit: 1000, offset_id: offsetId });
+            const messages = await client.getMessages(channelId, { limit: 100, offset_id: offsetId });
 
             if (!messages || messages.length === 0) {
                 console.log("No more messages to fetch.");
@@ -47,10 +46,13 @@ const saveChannelMessages = async () => {
 
             console.log(`Fetched ${messages.length} messages. Total: ${allMessages.length}`);
 
-            if (totalFetchedMessages >= 1000) {
-                console.log("Reached the limit of 1000 messages.");
+            if (totalFetchedMessages >= 100) {
+                console.log("Reached the limit of 100 messages.");
                 break;
             }
+
+            // Take a break of 300 milliseconds after fetching each batch of messages
+            await new Promise(resolve => setTimeout(resolve, 300));
         }
 
         console.log(`Total messages fetched for channel ${channelId}: ${allMessages.length}`);
@@ -66,7 +68,7 @@ const saveChannelMessages = async () => {
 
         console.log("Filtered video, document, or service messages:", videoOrDocumentMessages);
 
-        const existingMessages = await Messages.find({ channelId }, { messageId: 1 });
+        const existingMessages = await Messages.find({ channelId, messageId: { $in: videoOrDocumentMessages.map(msg => msg.messageId) } }, { messageId: 1 });
         const existingMessageIds = new Set(existingMessages.map((msg) => msg.messageId));
 
         const newMessages = videoOrDocumentMessages.filter(
@@ -103,5 +105,6 @@ const saveChannelMessages = async () => {
     }
 };
 
+setInterval(saveChannelMessages, 10000);
 
 module.exports = { saveChannelMessages };
