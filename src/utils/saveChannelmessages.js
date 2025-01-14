@@ -32,9 +32,9 @@ const saveChannelMessages = async () => {
 
         console.log(`Processing channel: ${channelId}, lastMessageId: ${lastProcessedMessageId}`);
 
-        while (totalFetchedMessages < 100) {
+        while (totalFetchedMessages < 1000) {
             console.log(`Fetching messages for channel: ${channelId}, offsetId: ${offsetId}`);
-            const messages = await client.getMessages(channelId, { limit: 300, offset_id: offsetId });
+            const messages = await client.getMessages(channelId, { limit: 1000, offset_id: offsetId });
 
             if (!messages || messages.length === 0) {
                 console.log("No more messages to fetch.");
@@ -47,8 +47,8 @@ const saveChannelMessages = async () => {
 
             console.log(`Fetched ${messages.length} messages. Total: ${allMessages.length}`);
 
-            if (totalFetchedMessages >= 100) {
-                console.log("Reached the limit of 100 messages.");
+            if (totalFetchedMessages >= 1000) {
+                console.log("Reached the limit of 1000 messages.");
                 break;
             }
         }
@@ -56,7 +56,7 @@ const saveChannelMessages = async () => {
         console.log(`Total messages fetched for channel ${channelId}: ${allMessages.length}`);
 
         const videoOrDocumentMessages = allMessages
-            .filter((message) => message.media && (message.media.video || message.media.document))
+            .filter((message) => message.media && (message.media.video || message.media.document || message.media.type === 'messageService'))
             .map((message) => ({
                 messageId: message.id,
                 channelId,
@@ -64,16 +64,22 @@ const saveChannelMessages = async () => {
                 fileSize: message.media.document ? message.media.document.size : (message.media.video ? message.media.video.size : 0)
             }));
 
-        console.log("Filtered video or document messages:", videoOrDocumentMessages);
+        console.log("Filtered video, document, or service messages:", videoOrDocumentMessages);
 
         const existingMessages = await Messages.find({ channelId }, { messageId: 1 });
         const existingMessageIds = new Set(existingMessages.map((msg) => msg.messageId));
 
         const newMessages = videoOrDocumentMessages.filter(
-            (msg) => !existingMessageIds.has(msg.messageId)
+            (msg) => {
+                if (existingMessageIds.has(msg.messageId)) {
+                    console.log(`Message with ID ${msg.messageId} is a duplicate and will not be saved.`);
+                    return false;
+                }
+                return true;
+            }
         );
 
-        console.log("New video or document messages to be saved:", newMessages);
+        console.log("New video, document, or service messages to be saved:", newMessages);
 
         if (newMessages.length > 0) {
             const savedMessages = await Messages.insertMany(newMessages);
@@ -96,5 +102,6 @@ const saveChannelMessages = async () => {
         console.log(`Time taken: ${(endTime - startTime) / 1000} seconds`);
     }
 };
+
 
 module.exports = { saveChannelMessages };
