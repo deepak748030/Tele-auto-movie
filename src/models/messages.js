@@ -12,6 +12,10 @@ const message = new mongoose.Schema({
     messageCaption: {
         type: String
     },
+    messageForwarded: {
+        type: Boolean,
+        default: false
+    },
 
 }, { timestamps: true });
 
