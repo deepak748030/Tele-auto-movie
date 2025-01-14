@@ -3,6 +3,7 @@ const { getTelegramClient } = require("../../telegram/telegramClient");
 const Channel = require("../models/channel");
 const NodeCache = require("node-cache");
 const cache = new NodeCache();
+
 const saveChannelMessages = async () => {
     const startTime = Date.now();
     try {
@@ -57,6 +58,7 @@ const saveChannelMessages = async () => {
 
         console.log(`Total messages fetched for channel ${channelId}: ${allMessages.length}`);
 
+        // Filter messages to include only video, document, or service messages
         const videoOrDocumentMessages = allMessages
             .filter((message) => message.media && (message.media.video || message.media.document || message.media.type === 'messageService'))
             .map((message) => ({
@@ -68,21 +70,35 @@ const saveChannelMessages = async () => {
 
         console.log("Filtered video, document, or service messages:", videoOrDocumentMessages);
 
-        const existingMessages = await Messages.find({ channelId, messageId: { $in: videoOrDocumentMessages.map(msg => msg.messageId) } }, { messageId: 1 });
-        const existingMessageIds = new Set(existingMessages.map((msg) => msg.messageId));
-
-        const newMessages = videoOrDocumentMessages.filter(
-            (msg) => {
-                if (existingMessageIds.has(msg.messageId)) {
-                    console.log(`Message with ID ${msg.messageId} is a duplicate and will not be saved.`);
-                    return false;
-                }
-                return true;
-            }
+        // Remove duplicates from the fetched data based on channelId and messageId
+        const uniqueMessages = videoOrDocumentMessages.filter((msg, index, self) =>
+            index === self.findIndex((m) => m.messageId === msg.messageId && m.channelId === msg.channelId)
         );
+
+        console.log("Unique messages after removing duplicates from fetched data:", uniqueMessages);
+
+        // Fetch existing messages from the database
+        const existingMessages = await Messages.find({ 
+            channelId, 
+            messageId: { $in: uniqueMessages.map(msg => msg.messageId) } 
+        }, { messageId: 1, channelId: 1 });
+
+        // Create a set of keys for existing messages to identify duplicates
+        const existingMessageIds = new Set(existingMessages.map((msg) => `${msg.channelId}-${msg.messageId}`));
+
+        // Filter out messages that are already in the database
+        const newMessages = uniqueMessages.filter((msg) => {
+            const uniqueKey = `${msg.channelId}-${msg.messageId}`;
+            if (existingMessageIds.has(uniqueKey)) {
+                console.log(`Message with ID ${msg.messageId} in channel ${msg.channelId} is a duplicate and will not be saved.`);
+                return false;
+            }
+            return true;
+        });
 
         console.log("New video, document, or service messages to be saved:", newMessages);
 
+        // Save new messages to the database
         if (newMessages.length > 0) {
             const savedMessages = await Messages.insertMany(newMessages);
             console.log(`Saved ${savedMessages.length} new messages to the database.`);
@@ -95,6 +111,7 @@ const saveChannelMessages = async () => {
             cache.set(`${channelId}_lastMessageId`, lastMessageId); // Cache the last processed message ID
         }
 
+        // Update the current channel index for the next run
         currentChannelIndex = (currentChannelIndex + 1) % channels.length;
         cache.set("currentChannelIndex", currentChannelIndex);
     } catch (error) {
@@ -105,6 +122,7 @@ const saveChannelMessages = async () => {
     }
 };
 
+// Run the function at regular intervals
 setInterval(saveChannelMessages, 10000);
 
 module.exports = { saveChannelMessages };
