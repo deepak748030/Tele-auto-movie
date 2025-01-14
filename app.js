@@ -16,6 +16,7 @@ app.get('/', (req, res) => {
 
 app.use('/saveallchannels', require('./src/routes/channel'));
 app.use('/skipchannel', require('./src/routes/skipchannel'));
+app.use('/messages', require('./src/routes/message'));
 
 
 
