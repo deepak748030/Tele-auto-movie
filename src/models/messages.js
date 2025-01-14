@@ -16,6 +16,9 @@ const message = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    fileSize: {
+        type: Number
+    }
 
 }, { timestamps: true });
 

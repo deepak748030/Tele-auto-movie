@@ -61,6 +61,7 @@ const saveChannelMessages = async () => {
                 messageId: message.id,
                 channelId,
                 messageCaption: message.message || "",
+                fileSize: message.media.document ? message.media.document.size : (message.media.video ? message.media.video.size : 0)
             }));
 
         console.log("Filtered video or document messages:", videoOrDocumentMessages);
@@ -88,7 +89,6 @@ const saveChannelMessages = async () => {
 
         currentChannelIndex = (currentChannelIndex + 1) % channels.length;
         cache.set("currentChannelIndex", currentChannelIndex);
-        console.log(lastProcessedMessage)
     } catch (error) {
         console.error("Error fetching and saving messages from channels:", error);
     } finally {
