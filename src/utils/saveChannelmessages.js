@@ -37,6 +37,7 @@ const saveChannelMessages = async () => {
 
                     // Collect all video messages from the batch
                     for (let message of messages) {
+
                         await new Promise(resolve => setTimeout(resolve, 2000));
                         if (message.media && message.media.video) {
                             const videoMessage = {
