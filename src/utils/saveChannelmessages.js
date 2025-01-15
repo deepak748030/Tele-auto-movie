@@ -3,100 +3,95 @@ const { getTelegramClient } = require("../../telegram/telegramClient");
 const Channel = require("../models/channel");
 const NodeCache = require("node-cache");
 const cache = new NodeCache();
+
 const saveChannelMessages = async () => {
     const startTime = Date.now();
     try {
         const client = getTelegramClient();
         console.log("Telegram client successfully retrieved.");
 
-        let channels = cache.get("channels");
-        if (!channels) {
-            channels = await Channel.find();
-            cache.set("channels", channels);
-        }
+        let oldestChannel = await Channel.findOne().sort({ updatedAt: 1 });
+        const channelId = oldestChannel.ChannelId;
+        const TM = oldestChannel.totalMessages;
+        let offsetId;
+        let lastSavedMessage = await Messages.findOne({ channelId }).sort({ messageId: -1 });
 
-        let currentChannelIndex = cache.get("currentChannelIndex") || 0;
-        if (currentChannelIndex >= channels.length) {
-            currentChannelIndex = 0;
-        }
-
-        const channel = channels[currentChannelIndex];
-        const channelId = channel.ChannelId;
-
-        const lastProcessedMessage = await Messages.findOne({ channelId }).sort({ createdAt: -1 });
-        const lastProcessedMessageId = lastProcessedMessage ? lastProcessedMessage.messageId : 0;
-        let offsetId = lastProcessedMessageId;
-        let allMessages = [];
-        let totalFetchedMessages = 0;
-
-        console.log(`Processing channel: ${channelId}, lastMessageId: ${lastProcessedMessageId}`);
-
-        while (totalFetchedMessages < 20) {
-            console.log(`Fetching messages for channel: ${channelId}, offsetId: ${offsetId}`);
-            const messages = await client.getMessages(channelId, { limit: 20, offset_id: offsetId });
-
-            if (!messages || messages.length === 0) {
-                console.log("No more messages to fetch.");
-                break;
-            }
-
-            allMessages = allMessages.concat(messages);
-            offsetId = messages[messages.length - 1].id;
-            totalFetchedMessages += messages.length;
-
-            console.log(`Fetched ${messages.length} messages. Total: ${allMessages.length}`);
-
-            if (totalFetchedMessages >= 20) {
-                console.log("Reached the limit of 20 messages.");
-                break;
-            }
-
-            // Take a break of 300 milliseconds after fetching each batch of messages
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-
-        console.log(`Total messages fetched for channel ${channelId}: ${allMessages.length}`);
-
-        const videoOrDocumentMessages = allMessages
-            .filter((message) => message.media && (message.media.video || message.media.document || message.media.type === 'messageService'))
-            .map((message) => ({
-                messageId: message.id,
-                channelId,
-                messageCaption: message.message || "",
-                fileSize: message.media.document ? message.media.document.size : (message.media.video ? message.media.video.size : 0)
-            }));
-
-        console.log("Filtered video, document, or service messages:", videoOrDocumentMessages);
-
-        const existingMessages = await Messages.find({ channelId, messageId: { $in: videoOrDocumentMessages.map(msg => msg.messageId) } }, { messageId: 1 });
-        const existingMessageIds = new Set(existingMessages.map((msg) => msg.messageId));
-
-        const newMessages = videoOrDocumentMessages.filter(
-            (msg) => {
-                if (existingMessageIds.has(msg.messageId)) {
-                    console.log(`Message with ID ${msg.messageId} is a duplicate and will not be saved.`);
-                    return false;
-                }
-                return true;
-            }
-        );
-
-        console.log("New video, document, or service messages to be saved:", newMessages);
-
-        if (newMessages.length > 0) {
-            const savedMessages = await Messages.insertMany(newMessages);
-            console.log(`Saved ${savedMessages.length} new messages to the database.`);
+        if (lastSavedMessage) {
+            offsetId = lastSavedMessage.messageId + 1;
         } else {
-            console.log("No new messages to save.");
+            offsetId = 1;
         }
 
-        if (allMessages.length > 0) {
-            const lastMessageId = allMessages[allMessages.length - 1].id;
-            cache.set(`${channelId}_lastMessageId`, lastMessageId); // Cache the last processed message ID
+        // Fetch and process messages in batches
+        const batchSize = 20; // You can experiment with this value (10, 20, or higher)
+        while (offsetId <= TM) {
+            console.log('offsetId', offsetId);
+
+            try {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Fetch a batch of messages
+                const messages = await client.getMessages(channelId, { limit: batchSize, offset_id: offsetId });
+                if (messages && messages.length > 0) {
+                    const videoMessages = [];
+
+                    // Collect all video messages from the batch
+                    for (let message of messages) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        if (message.media && message.media.video) {
+                            const videoMessage = {
+                                messageId: message.id,
+                                channelId,
+                                messageCaption: message.message || "",
+                                fileSize: message.media.video.size
+                            };
+
+                            // Add to the batch for database saving later
+                            videoMessages.push(videoMessage);
+                        }
+                    }
+
+                    // If there are any video messages to save, do it in a batch
+                    if (videoMessages.length > 0) {
+                        const existingMessages = await Messages.find({
+                            messageId: { $in: videoMessages.map(msg => msg.messageId) },
+                            channelId: channelId
+                        });
+
+                        // Filter out the messages that already exist in the database
+                        const newMessages = videoMessages.filter(msg =>
+                            !existingMessages.some(existingMsg => existingMsg.messageId === msg.messageId)
+                        );
+
+                        if (newMessages.length > 0) {
+                            // Batch insert the new messages
+                            await Messages.insertMany(newMessages);
+                            console.log(`Saved ${newMessages.length} new video messages.`);
+                        } else {
+                            console.log("No new video messages to save.");
+                        }
+                    }
+                } else {
+                    console.log("No messages retrieved.");
+                }
+
+                offsetId += batchSize; // Increment offsetId by batch size
+            } catch (error) {
+                // Handle FloodWaitError if it occurs
+                if (error.constructor.name === 'FloodWaitError') {
+                    console.error(`Flood wait error occurred. Waiting for ${error.seconds} seconds...`);
+                    await new Promise(resolve => setTimeout(resolve, error.seconds * 6000)); // Wait for the required time
+                    continue; // Retry the operation after waiting
+                } else {
+                    console.error("Error fetching messages:", error);
+                    break; // If it's another error, stop the loop
+                }
+            }
         }
 
-        currentChannelIndex = (currentChannelIndex + 1) % channels.length;
-        cache.set("currentChannelIndex", currentChannelIndex);
+        // Increment the database count and continue
+        await Channel.findByIdAndUpdate(oldestChannel._id, { $inc: { databaseCount: 1 } });
+        saveChannelMessages(); // Recursive call to continue the process
     } catch (error) {
         console.error("Error fetching and saving messages from channels:", error);
     } finally {
@@ -105,6 +100,6 @@ const saveChannelMessages = async () => {
     }
 };
 
-setInterval(saveChannelMessages, 10000);
+saveChannelMessages();
 
 module.exports = { saveChannelMessages };
