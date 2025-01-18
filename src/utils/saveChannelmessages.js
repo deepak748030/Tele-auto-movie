@@ -33,11 +33,7 @@ const saveChannelMessages = async () => {
                 // Fetch a batch of messages
                 const messages = await client.getMessages(channelId, { limit: batchSize, offset_id: offsetId });
                 if (messages && messages.length > 0) {
-                    const videoMessages = [];
-
-                    // Collect all video messages from the batch
                     for (let message of messages) {
-
                         await new Promise(resolve => setTimeout(resolve, 2000));
                         if (message.media && message.media.video) {
                             const videoMessage = {
@@ -47,29 +43,19 @@ const saveChannelMessages = async () => {
                                 fileSize: message.media.video.size
                             };
 
-                            // Add to the batch for database saving later
-                            videoMessages.push(videoMessage);
-                        }
-                    }
+                            // Check if the message already exists in the database
+                            const existingMessage = await Messages.findOne({
+                                messageId: videoMessage.messageId,
+                                channelId: videoMessage.channelId
+                            });
 
-                    // If there are any video messages to save, do it in a batch
-                    if (videoMessages.length > 0) {
-                        const existingMessages = await Messages.find({
-                            messageId: { $in: videoMessages.map(msg => msg.messageId) },
-                            channelId: channelId
-                        });
-
-                        // Filter out the messages that already exist in the database
-                        const newMessages = videoMessages.filter(msg =>
-                            !existingMessages.some(existingMsg => existingMsg.messageId === msg.messageId)
-                        );
-
-                        if (newMessages.length > 0) {
-                            // Batch insert the new messages
-                            await Messages.insertMany(newMessages);
-                            console.log(`Saved ${newMessages.length} new video messages.`);
-                        } else {
-                            console.log("No new video messages to save.");
+                            // Save the message immediately if it doesn't exist
+                            if (!existingMessage) {
+                                await Messages.create(videoMessage);
+                                console.log(`Saved video message with ID: ${videoMessage.messageId}`);
+                            } else {
+                                console.log(`Message with ID: ${videoMessage.messageId} already exists in the database.`);
+                            }
                         }
                     }
                 } else {
