@@ -25,7 +25,7 @@ const saveChannelMessages = async () => {
         // Fetch and process messages in batches
         const batchSize = 20; // You can experiment with this value (10, 20, or higher)
         while (offsetId <= TM) {
-            console.log('offsetId', offsetId);
+            console.log("offsetId", offsetId);
 
             try {
                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -43,10 +43,9 @@ const saveChannelMessages = async () => {
                                 fileSize: message.media.video.size
                             };
 
-                            // Check if the message already exists in the database
+                            // Check if the message already exists in the database by messageCaption and fileSize
                             const existingMessage = await Messages.findOne({
-                                messageId: videoMessage.messageId,
-                                channelId: videoMessage.channelId
+                                messageCaption: videoMessage.messageCaption
                             });
 
                             // Save the message immediately if it doesn't exist
@@ -54,7 +53,9 @@ const saveChannelMessages = async () => {
                                 await Messages.create(videoMessage);
                                 console.log(`Saved video message with ID: ${videoMessage.messageId}`);
                             } else {
-                                console.log(`Message with ID: ${videoMessage.messageId} already exists in the database.`);
+                                console.log(
+                                    `Message with caption "${videoMessage.messageCaption}" and file size "${videoMessage.fileSize}" already exists in the database.`
+                                );
                             }
                         }
                     }
@@ -65,7 +66,7 @@ const saveChannelMessages = async () => {
                 offsetId += batchSize; // Increment offsetId by batch size
             } catch (error) {
                 // Handle FloodWaitError if it occurs
-                if (error.constructor.name === 'FloodWaitError') {
+                if (error.constructor.name === "FloodWaitError") {
                     console.error(`Flood wait error occurred. Waiting for ${error.seconds} seconds...`);
                     await new Promise(resolve => setTimeout(resolve, error.seconds * 6000)); // Wait for the required time
                     continue; // Retry the operation after waiting
