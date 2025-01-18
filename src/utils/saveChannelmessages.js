@@ -48,7 +48,7 @@ const saveChannelMessages = async () => {
                         console.log(`Processing Message ID: ${message.id} in Channel ID: ${channelId}`);
 
                         // Add delay for rate limiting purposes
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        await new Promise(resolve => setTimeout(resolve, 1000));
 
                         if (message.media && message.media.video) {
                             const videoMessage = {
@@ -58,21 +58,9 @@ const saveChannelMessages = async () => {
                                 fileSize: message.media.video.size
                             };
 
-                            // Check if the message already exists in the database by messageCaption and fileSize
-                            const existingMessage = await Messages.findOne({
-                                messageCaption: videoMessage.messageCaption,
-                                fileSize: videoMessage.fileSize
-                            });
-
-                            // Save the message if it doesn't exist
-                            if (!existingMessage) {
-                                await Messages.create(videoMessage);
-                                console.log(`Saved video message with ID: ${videoMessage.messageId}`);
-                            } else {
-                                console.log(
-                                    `Message with caption "${videoMessage.messageCaption}" and file size "${videoMessage.fileSize}" already exists in the database.`
-                                );
-                            }
+                            // Save the message directly without checking for existing data
+                            await Messages.create(videoMessage);
+                            console.log(`Saved video message with ID: ${videoMessage.messageId}`);
                         }
                     }
                 } else {
