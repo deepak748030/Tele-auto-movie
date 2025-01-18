@@ -6,11 +6,18 @@ const cache = new NodeCache();
 
 const saveChannelMessages = async () => {
     const startTime = Date.now();
+    let lastChannelProcessed = null; // Track the last channel that was processed
+
     try {
         const client = getTelegramClient();
         console.log("Telegram client successfully retrieved.");
 
         let oldestChannel = await Channel.findOne().sort({ updatedAt: 1 });
+        if (!oldestChannel) {
+            console.log("No channel found in the database.");
+            return; // Exit if there are no channels to process
+        }
+
         const channelId = oldestChannel.ChannelId;
         const TM = oldestChannel.totalMessages;
         let offsetId;
@@ -18,23 +25,32 @@ const saveChannelMessages = async () => {
 
         if (lastSavedMessage) {
             offsetId = lastSavedMessage.messageId + 1;
+            console.log(`Resuming from message ID: ${offsetId}`);
         } else {
             offsetId = 1;
+            console.log("Starting from the beginning (message ID 1).");
         }
 
         // Fetch and process messages in batches
-        const batchSize = 20; // You can experiment with this value (10, 20, or higher)
+        const batchSize = 20; // Experiment with different values for batch size
         while (offsetId <= TM) {
-            console.log("offsetId", offsetId);
+            console.log(`Fetching messages for Channel ID: ${channelId}, Starting from Message ID: ${offsetId}`);
 
             try {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Adding delay to avoid rate limiting
 
                 // Fetch a batch of messages
                 const messages = await client.getMessages(channelId, { limit: batchSize, offset_id: offsetId });
+
                 if (messages && messages.length > 0) {
+                    console.log(`Fetched ${messages.length} messages from Channel ID: ${channelId}.`);
+
                     for (let message of messages) {
+                        console.log(`Processing Message ID: ${message.id} in Channel ID: ${channelId}`);
+
+                        // Add delay for rate limiting purposes
                         await new Promise(resolve => setTimeout(resolve, 2000));
+
                         if (message.media && message.media.video) {
                             const videoMessage = {
                                 messageId: message.id,
@@ -45,10 +61,11 @@ const saveChannelMessages = async () => {
 
                             // Check if the message already exists in the database by messageCaption and fileSize
                             const existingMessage = await Messages.findOne({
-                                messageCaption: videoMessage.messageCaption
+                                messageCaption: videoMessage.messageCaption,
+                                fileSize: videoMessage.fileSize
                             });
 
-                            // Save the message immediately if it doesn't exist
+                            // Save the message if it doesn't exist
                             if (!existingMessage) {
                                 await Messages.create(videoMessage);
                                 console.log(`Saved video message with ID: ${videoMessage.messageId}`);
@@ -68,23 +85,29 @@ const saveChannelMessages = async () => {
                 // Handle FloodWaitError if it occurs
                 if (error.constructor.name === "FloodWaitError") {
                     console.error(`Flood wait error occurred. Waiting for ${error.seconds} seconds...`);
-                    await new Promise(resolve => setTimeout(resolve, error.seconds * 6000)); // Wait for the required time
-                    continue; // Retry the operation after waiting
+                    await new Promise(resolve => setTimeout(resolve, error.seconds * 1000)); // Wait for the required time
+                    continue; // Retry after waiting
                 } else {
                     console.error("Error fetching messages:", error);
-                    break; // If it's another error, stop the loop
+                    break; // Stop if it's another type of error
                 }
             }
         }
 
-        // Increment the database count and continue
+        // After processing all messages, update the channel's database count
         await Channel.findByIdAndUpdate(oldestChannel._id, { $inc: { databaseCount: 1 } });
-        saveChannelMessages(); // Recursive call to continue the process
+        console.log(`Updated database count for Channel ID: ${channelId}.`);
+
+        // Update last processed channel
+        lastChannelProcessed = oldestChannel._id;
+
+        // Recursive call to continue the process for the next channel
+        saveChannelMessages();
     } catch (error) {
         console.error("Error fetching and saving messages from channels:", error);
     } finally {
         const endTime = Date.now();
-        console.log(`Time taken: ${(endTime - startTime) / 1000} seconds`);
+        console.log(`Time taken for this cycle: ${(endTime - startTime) / 1000} seconds`);
     }
 };
 
