@@ -6,7 +6,6 @@ const cache = new NodeCache();
 
 const saveChannelMessages = async () => {
     const startTime = Date.now();
-    let lastChannelProcessed = null; // Track the last channel that was processed
 
     try {
         const client = getTelegramClient();
@@ -94,15 +93,19 @@ const saveChannelMessages = async () => {
             }
         }
 
-        // After processing all messages, update the channel's database count
+        // After processing all messages for the current channel, update the channel's database count
         await Channel.findByIdAndUpdate(oldestChannel._id, { $inc: { databaseCount: 1 } });
         console.log(`Updated database count for Channel ID: ${channelId}.`);
 
-        // Update last processed channel
-        lastChannelProcessed = oldestChannel._id;
+        // Move to the next channel if available
+        const nextChannel = await Channel.findOne().sort({ updatedAt: 1 });
+        if (nextChannel && nextChannel._id !== oldestChannel._id) {
+            console.log("Moving to the next channel...");
+            saveChannelMessages(); // Recursive call to process the next channel
+        } else {
+            console.log("No more channels to process.");
+        }
 
-        // Recursive call to continue the process for the next channel
-        saveChannelMessages();
     } catch (error) {
         console.error("Error fetching and saving messages from channels:", error);
     } finally {
