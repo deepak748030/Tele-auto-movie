@@ -1,107 +1,133 @@
 const Messages = require("../models/messages");
 const { getTelegramClient } = require("../../telegram/telegramClient");
 const Channel = require("../models/channel");
-const NodeCache = require("node-cache");
-const cache = new NodeCache();
 
+/**
+ * Fetches and saves video messages from Telegram channels into the database.
+ * Processes channels one by one, fetching messages in batches.
+ */
 const saveChannelMessages = async () => {
     const startTime = Date.now();
+    console.log("Starting to fetch and save video messages...");
 
     try {
         const client = getTelegramClient();
-        console.log("Telegram client successfully retrieved.");
+        console.log("Telegram client successfully initialized.");
 
-        let oldestChannel = await Channel.findOne().sort({ updatedAt: 1 });
-        if (!oldestChannel) {
-            console.log("No channel found in the database.");
-            return; // Exit if there are no channels to process
+        // Fetch all channels from the database
+        const channels = await Channel.find({}).lean().sort({ totalMessages: 1 });
+        if (!channels || channels.length === 0) {
+            console.log("No channels found in the database.");
+            return;
         }
 
-        const channelId = oldestChannel.ChannelId;
-        const TM = oldestChannel.totalMessages;
-        let offsetId;
-        let lastSavedMessage = await Messages.findOne({ channelId }).sort({ messageId: -1 });
+        // Process each channel completely before moving to the next
+        for (const channel of channels) {
+            const { _id: channelId, channelName, databaseCount } = channel;
 
-        if (lastSavedMessage) {
-            offsetId = lastSavedMessage.messageId + 1;
-            console.log(`Resuming from message ID: ${offsetId}`);
-        } else {
-            offsetId = 1;
-            console.log("Starting from the beginning (message ID 1).");
-        }
-
-        // Fetch and process messages in batches
-        const batchSize = 20; // Experiment with different values for batch size
-        while (offsetId <= TM) {
-            console.log(`Fetching messages for Channel ID: ${channelId}, Starting from Message ID: ${offsetId}`);
+            console.log(`Processing channel: ${channelName} (ID: ${channelId})`);
+            let offsetId = 0; // Start from the first message
+            let hasMoreMessages = true;
 
             try {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Adding delay to avoid rate limiting
+                // Resolve channel entity
+                // const resolvedChannel = await client.getEntity(channelId.toString());
 
-                // Fetch a batch of messages
-                const messages = await client.getMessages(channelId, { limit: batchSize, offset_id: offsetId });
+                // Fetch and process messages until there are no more messages
+                while (hasMoreMessages) {
+                    console.log(`Fetching messages for Channel: ${channelName}, Offset ID: ${offsetId}`);
 
-                if (messages && messages.length > 0) {
-                    console.log(`Fetched ${messages.length} messages from Channel ID: ${channelId}.`);
+                    // Add a delay to avoid rate-limiting
+                    await delay(100);
 
-                    for (let message of messages) {
-                        console.log(`Processing Message ID: ${message.id} in Channel ID: ${channelId}`);
+                    // Fetch all messages
+                    const messages = await client.getMessages(channel.ChannelId, {
+                        offset_id: offsetId,
+                    });
 
-                        // Add delay for rate limiting purposes
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    // Stop processing if no messages are retrieved
+                    if (!messages || messages.length === 0) {
+                        console.log(`No more messages to fetch for Channel: ${channelName}.`);
+                        hasMoreMessages = false;
+                        break;
+                    }
+
+                    // Process each message in the batch
+                    for (const message of messages) {
+                        console.log(`Processing Message ID: ${message.id} in Channel: ${channelName}`);
+
+                        // Add a delay for rate-limiting purposes
+                        await delay(400);
 
                         if (message.media && message.media.video) {
                             const videoMessage = {
                                 messageId: message.id,
                                 channelId,
                                 messageCaption: message.message || "",
-                                fileSize: message.media.video.size
+                                fileSize: message.media.video.size,
                             };
 
-                            // Save the message directly without checking for existing data
-                            await Messages.create(videoMessage);
-                            console.log(`Saved video message with ID: ${videoMessage.messageId}`);
+                            // Check if the message already exists
+                            const exists = await Messages.findOne({
+                                messageId: message.id,
+                                channelId,
+                            });
+                            if (!exists) {
+                                // Save the new message
+                                await Messages.create(videoMessage);
+                                console.log(`Saved video message with ID: ${message.id}`);
+                            } else {
+                                console.log(`Message ID: ${message.id} already exists.`);
+                            }
                         }
                     }
-                } else {
-                    console.log("No messages retrieved.");
+
+                    // Update the offsetId to the last message ID from this batch
+                    offsetId = messages[messages.length - 1].id - 1;
+
+                    // If fewer messages are retrieved than the batch size, stop further processing
+                    if (messages.length < 100) { // Assuming batch size is 100
+                        hasMoreMessages = false;
+                        console.log(`No more messages left in Channel: ${channelName}.`);
+                    }
                 }
 
-                offsetId += batchSize; // Increment offsetId by batch size
+                // Update the database count for the channel
+                await Channel.findByIdAndUpdate(channelId, { $set: { totalMessages: offsetId + 1, databaseCount: databaseCount + 1 } });
+                console.log(`Updated database count and totalMessages for Channel: ${channelName}`);
             } catch (error) {
-                // Handle FloodWaitError if it occurs
+                // Handle specific errors
                 if (error.constructor.name === "FloodWaitError") {
-                    console.error(`Flood wait error occurred. Waiting for ${error.seconds} seconds...`);
-                    await new Promise(resolve => setTimeout(resolve, error.seconds * 1000)); // Wait for the required time
-                    continue; // Retry after waiting
+                    console.error(
+                        `Flood wait error: Waiting for ${error.seconds} seconds before retrying...`
+                    );
+                    await delay(error.seconds * 1000);
+                } else if (error.message.includes("Cannot cast")) {
+                    console.error(`Cannot process Channel: ${channelName} due to casting error. Skipping...`);
                 } else {
-                    console.error("Error fetching messages:", error);
-                    break; // Stop if it's another type of error
+                    console.error(`Error processing Channel: ${channelName}`, error);
+                    break; // Stop processing the current channel on unknown errors
                 }
             }
         }
 
-        // After processing all messages for the current channel, update the channel's database count
-        await Channel.findByIdAndUpdate(oldestChannel._id, { $inc: { databaseCount: 1 } });
-        console.log(`Updated database count for Channel ID: ${channelId}.`);
-
-        // Move to the next channel if available
-        const nextChannel = await Channel.findOne().sort({ updatedAt: 1 });
-        if (nextChannel && nextChannel._id !== oldestChannel._id) {
-            console.log("Moving to the next channel...");
-            saveChannelMessages(); // Recursive call to process the next channel
-        } else {
-            console.log("No more channels to process.");
-        }
-
+        console.log("All channels have been processed successfully.");
     } catch (error) {
-        console.error("Error fetching and saving messages from channels:", error);
+        console.error("Error fetching and saving messages:", error);
     } finally {
         const endTime = Date.now();
         console.log(`Time taken for this cycle: ${(endTime - startTime) / 1000} seconds`);
     }
 };
 
+/**
+ * Utility function to add a delay
+ * @param {number} ms - Milliseconds to wait
+ * @returns {Promise}
+ */
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Run the function
 saveChannelMessages();
 
 module.exports = { saveChannelMessages };
