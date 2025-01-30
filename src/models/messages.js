@@ -1,8 +1,9 @@
 const { default: mongoose } = require("mongoose");
 
-const message = new mongoose.Schema({
+const messageSchema = new mongoose.Schema({
     channelId: {
-        type: String,
+        type: mongoose.Schema.Types.ObjectId, // Reference to Channel collection
+        ref: "Channel", // Refers to the "Channel" model
         required: true
     },
     messageId: {
@@ -19,7 +20,6 @@ const message = new mongoose.Schema({
     fileSize: {
         type: Number
     }
-
 }, { timestamps: true });
 
-module.exports = mongoose.model('Message', message);
+module.exports = mongoose.model("Message", messageSchema);
