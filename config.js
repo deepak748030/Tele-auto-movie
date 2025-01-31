@@ -8,5 +8,5 @@ module.exports = {
     API_ID: process.env.API_ID,
     API_HASH: process.env.API_HASH,
     STRING_SESSION: process.env.STRING_SESSION,
-    JWT_SECRET: process.env.JWT_SECRET,
+    // JWT_SECRET: process.env.JWT_SECRET,
 }
