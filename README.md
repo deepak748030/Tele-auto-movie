@@ -157,6 +157,3 @@ To build the project for production:
 ```bash
 npm run build
 ```
-```
-
-This `README.md` provides a comprehensive guide for setting up, using, and contributing to your **Tele-Auto-Movie** project. Let me know if you'd like to make any additional changes or improvements!
